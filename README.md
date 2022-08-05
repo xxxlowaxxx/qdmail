@@ -22,6 +22,31 @@ Qdmailライブラリシリーズのgithub版です。
 できれば私の手を離れて誰かが管理してくれるとうれしいと思っています。
 ```
 
+## Receiver ##
+Azure ADのサービスプリンシパルを利用したOAuth2.0認証によるPOP接続を追加  
+証明書を使う方式です。テストしていないので使用は自己責任でお願いします。  
+qdmail_receiver.phpの以下の箇所に、環境に応じた値を入力します。  
+```
+var $server = array(
+		'host'=>'',
+		'port'=>110,
+		'user'=>'',
+		'pass'=>'',
+	);
+
+	var $certificate = array(
+		'path'=>'', //pfx file only
+		'pwd' =>''
+	);
+
+	var $service_principal = array(
+		'client_id'=>'',
+		'tenant_id'=>''
+	);
+
+	var $auth = 'BASIC'; // or XOAUTH2
+```
+
 ## Associated repository ##
 * [Component for CakePHP2.x](https://github.com/spark-lab/Qdmail) by spark-lab
 

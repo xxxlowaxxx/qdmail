@@ -820,8 +820,8 @@ class QdPopBase extends QdDecodeBase{
 	);
 
 	var $certificate = array(
-		'certPath'=>'', //pfx file only
-		'certPwd' =>''
+		'path'=>'', //pfx file only
+		'pwd' =>''
 	);
 
 	var $service_principal = array(
@@ -830,6 +830,7 @@ class QdPopBase extends QdDecodeBase{
 	);
 
 	var $auth = 'BASIC'; // or XOAUTH2
+	//var $auth = 'XOATUH2';
 
 	var $time_out	= 5;
 	var $pointer	= 1;
@@ -977,7 +978,7 @@ class QdPopBase extends QdDecodeBase{
 	}
 
 	function getTokenFromAzure(){
-		openssl_pkcs12_read(file_get_contents($this->$certificate["certPath"]), $certs, $this->$certificate["certPwd"]);
+		openssl_pkcs12_read(file_get_contents($this->$certificate["path"]), $certs, $this->$certificate["pwd"]);
 		$cert = openssl_x509_read($certs["cert"]);
 		$x5t = base64urlencode(openssl_x509_fingerprint($cert, 'sha1', true));
 		$pkey = openssl_pkey_get_private ($certs["pkey"]);
