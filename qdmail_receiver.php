@@ -828,6 +828,9 @@ class QdPopBase extends QdDecodeBase{
 		'client_id'=>'',
 		'tenant_id'=>''
 	);
+
+	var $auth = 'BASIC'; // or XOAUTH2
+
 	var $time_out	= 5;
 	var $pointer	= 1;
 	var $count		= 0;
@@ -909,14 +912,32 @@ class QdPopBase extends QdDecodeBase{
 	// make Connection and close
 	//----------------------------------
 	function connect(){
+		if($this->$auth == 'BASIC'){
+			$com1 = 'USER '.$this->server['user'];
+			$error1 = 'USER ID Error';
+			$com2 = 'PASS '.$this->server['pass'];
+			$error2 = 'PASS ID Error';
+		} elseif($this->$auth == 'XOAUTH2') {
+			$access_token = $this->getToken();
+			if(!$access_token){
+				return $this->errorFatal('token error',__LINE__);
+			}
+			$com1 = 'AUTH XOAUTH2';
+			$error1 = 'AUTH XOAUTH2 Error';
+			$com2 = base64_encode('user='.$this->$server['user'].'\u0001auth=Bearer '.$access_token.'\u0001\u0001');
+			$error2 = 'ID Or Token Error';
+		}else{
+			return $this->errorFatal('auth error. BASIC or XOAUTH2.',__LINE__);
+		}
+		//
 		$this->fp=fsockopen($this->server['host'],$this->server['port'], $err , $errst , $this->time_out );
 		if(!is_resource($this->fp)){
 			return $this->errorFatal('Connection Failure \''.$this->server['host'].'\' Port \''.$this->server['port'].'\'',__LINE__);
 		}
 		stream_set_timeout ( $this->fp , $this->time_out );
 		$this->getMessage( true );
-		list($fg1,$void)=$this->communicate('USER '.$this->server['user'],array('USER ID Error',__LINE__,!$this->error_fatal_ignore),true);
-		list($fg2,$void)=$this->communicate('PASS '.$this->server['pass'],array('PASS ID Error',__LINE__,!$this->error_fatal_ignore),true);
+		list($fg1,$void)=$this->communicate($com1,array($error1,__LINE__,!$this->error_fatal_ignore),true);
+		list($fg2,$void)=$this->communicate($com2,array($error2,__LINE__,!$this->error_fatal_ignore),true);
 
 		$this->uid_list	=array();
 		return  $fg1 && $fg2 ;
@@ -1001,26 +1022,7 @@ class QdPopBase extends QdDecodeBase{
 		$this->createCacheFile($response_json);
 		return $response_json;
 	}
-
-	function connectExchange(){
-		$access_token = $this->getToken();
-		if(!$access_token){
-			return $this->errorFatal('token error',__LINE__);
-		}
-		$this->fp=fsockopen($this->server['host'],$this->server['port'], $err , $errst , $this->time_out );
-		if(!is_resource($this->fp)){
-			return $this->errorFatal('Connection Failure \''.$this->server['host'].'\' Port \''.$this->server['port'].'\'',__LINE__);
-		}
-		stream_set_timeout ( $this->fp , $this->time_out );
-		$this->getMessage( true );
-		list($fg1,$void)=$this->communicate('AUTH XOAUTH2',array('AUTH XOAUTH2 Error',__LINE__,!$this->error_fatal_ignore),true);
-		$com2 = base64_encode('user='.$this->$server['user'].'\u0001auth=Bearer '.$access_token.'\u0001\u0001');
-		list($fg2,$void)=$this->communicate($com2,array('ID Token Error',__LINE__,!$this->error_fatal_ignore),true);
-
-		$this->uid_list	=array();
-		return  $fg1 && $fg2 ;
-	}
-
+	
 	/**
 	* base64urlencode  https://jwt.io/
 	*/
