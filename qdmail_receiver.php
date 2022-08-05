@@ -818,6 +818,16 @@ class QdPopBase extends QdDecodeBase{
 		'user'=>'',
 		'pass'=>'',
 	);
+
+	var $certificate = array(
+		'certPath'=>'', //pfx file only
+		'certPwd' =>''
+	);
+
+	var $service_principal = array(
+		'client_id'=>'',
+		'tenant_id'=>''
+	);
 	var $time_out	= 5;
 	var $pointer	= 1;
 	var $count		= 0;
@@ -827,6 +837,8 @@ class QdPopBase extends QdDecodeBase{
 	var $get_uid	= true;
 	var $popuid		= 'popuid';
 	var $uid_list	= array();
+
+	var $cacheFile = __DIR__ . '/.token';
 
 	//--------------------------
 	// Constructor
@@ -915,6 +927,116 @@ class QdPopBase extends QdDecodeBase{
 	}
 	function done(){
 		return $this->close();
+	}
+
+	function getToken(){
+		$token = getTokenFromCache();
+		if(!$token || ($token && $token->expiry_unix_timestamp < date_timestamp_get(new DateTime()))) {
+			$token = $this->getTokenFromAzure();
+		}
+		if(!$token){
+			return $token->access_token;
+		}
+		return;
+	}
+
+	function getTokenFromCache(){
+		if (file_exists($this->$cacheFile)) {
+			return json_decode(unserialize(file_get_contents($this->$cacheFile)));
+		}
+		return;
+	}
+
+	function createCacheFile($response_json){
+		if(!$response_json){
+			$objDateTime = new DateTime('+'.$response_json->expires_in.' seconds');
+			$response_json->expiry_unix_timestamp = date_timestamp_get($objDateTime);
+			file_put_contents('token', serialize(json_encode($response_json)));
+		}
+	}
+
+	function getTokenFromAzure(){
+		openssl_pkcs12_read(file_get_contents($this->$certificate["certPath"]), $certs, $this->$certificate["certPwd"]);
+		$cert = openssl_x509_read($certs["cert"]);
+		$x5t = base64urlencode(openssl_x509_fingerprint($cert, 'sha1', true));
+		$pkey = openssl_pkey_get_private ($certs["pkey"]);
+		$exp = time() + (60 * 10);
+		$nbf = time() - (60 * 10);
+		$client_id = $this->$service_principal['client_id'];
+		$subject = $client_id;
+		$jti = guidv4();
+		$token_endpoint = $setup['tenant'].'/oauth2/v2.0/token';
+		
+		// JWT
+		$header = '{"alg":"RS256","typ":"JWT","x5t":"' . $x5t .'"}';
+		$payload = '{
+		"aud": "'.$token_endpoint.'",
+		"exp": '.$exp.',
+		"iss": "'.$client_id.'",
+		"jti": "'.$jti.'",
+		"nbf": '.$nbf.',
+		"sub": "'.$subject.'"
+		}';
+		$unsigned_token = base64_encode($header).".".base64_encode($payload);
+		openssl_sign($unsigned_token, $signature, $pkey, 'SHA256');
+		$token = $unsigned_token.".".base64urlencode($signature);
+		$post = [
+			'client_id' => $client_id,
+			'client_assertion' => $token,
+			'client_assertion_type' => 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+			'grant_type' => 'client_credentials',
+			'scope' => 'https://graph.microsoft.com/.default'
+		];
+
+		$options = array(
+			'http' => array(
+				'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+				'method'  => 'POST',
+				'content' => http_build_query($post)
+			)
+		);
+		$context  = stream_context_create($options);
+		$response = file_get_contents($token_endpoint, false, $context);
+		$response_json = json_decode($response);
+		$this->createCacheFile($response_json);
+		return $response_json;
+	}
+
+	function connectExchange(){
+		$access_token = $this->getToken();
+		if(!$access_token){
+			return $this->errorFatal('token error',__LINE__);
+		}
+		$this->fp=fsockopen($this->server['host'],$this->server['port'], $err , $errst , $this->time_out );
+		if(!is_resource($this->fp)){
+			return $this->errorFatal('Connection Failure \''.$this->server['host'].'\' Port \''.$this->server['port'].'\'',__LINE__);
+		}
+		stream_set_timeout ( $this->fp , $this->time_out );
+		$this->getMessage( true );
+		list($fg1,$void)=$this->communicate('AUTH XOAUTH2',array('AUTH XOAUTH2 Error',__LINE__,!$this->error_fatal_ignore),true);
+		$com2 = base64_encode('user='.$this->$server['user'].'\u0001auth=Bearer '.$access_token.'\u0001\u0001');
+		list($fg2,$void)=$this->communicate($com2,array('ID Token Error',__LINE__,!$this->error_fatal_ignore),true);
+
+		$this->uid_list	=array();
+		return  $fg1 && $fg2 ;
+	}
+
+	/**
+	* base64urlencode  https://jwt.io/
+	*/
+	function base64urlencode($value) {
+		return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+	}
+
+	function guidv4()
+	{
+		if (function_exists('com_create_guid') === true)
+			return trim(com_create_guid(), '{}');
+
+		$data = openssl_random_pseudo_bytes(16);
+		$data[6] = chr(ord($data[6]) & 0x0f | 0x40); // set version to 0100
+		$data[8] = chr(ord($data[8]) & 0x3f | 0x80); // set bits 6-7 to 10
+		return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 	}
 
 	//----------------------------------
